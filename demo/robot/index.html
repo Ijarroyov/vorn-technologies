@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VORA OS — Demostración (reproducción de simulación)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div role="note" style="position:fixed;z-index:99999;left:0;right:0;bottom:0;padding:.45rem 1rem;background:#0c202e;color:#f4f6f5;font:600 13px/1.35 system-ui,sans-serif;text-align:center;border-top:1px solid #ff6a2b">
+  Demostración: reproducción de una simulación real de VORA OS (software de percepción y razonamiento, sin robot físico). No es una misión en vivo. <a href="../" style="color:#7cc4e0">Volver a la demo de Vörn</a>
+</div>
+
+
+<!-- ═══ SPLASH ═══════════════════════════════════════════════
+     Pantalla previa a entrar a la misión. `position: fixed`, así
+     que queda fuera del grid de `body` (command/situation/rail) y
+     no lo altera -- se limita a cubrirlo hasta que se elige una
+     acción. `mission.js` la controla; `app.js` (el motor del
+     dashboard, poll/canvas/dossier) no arranca hasta que eso pase.
+     El ícono es software/dashboard/static/img/vora_mark.png -- el
+     mismo PNG oficial (carita robot verde) recortado a su propio
+     bounding box real, en su color original, sin redibujar nada. -->
+<div id="splash" class="splash" role="dialog" aria-modal="true" aria-label="Inicio de VORA OS">
+  <div class="splash-content">
+    <img class="splash-logo" src="img/vora_mark.png" alt="VÖR">
+    <h1 class="splash-title">VORA<span class="splash-title-os">&nbsp;OS</span></h1>
+    <p class="splash-tagline">Percepción y razonamiento para búsqueda y rescate</p>
+    <div class="splash-actions">
+      <button type="button" id="splash-new" class="splash-btn splash-btn-primary">Nueva misión</button>
+      <button type="button" id="splash-continue" class="splash-btn splash-btn-secondary" disabled>Continuar misión anterior</button>
+    </div>
+    <p class="splash-continue-note" id="splash-continue-note"></p>
+  </div>
+</div>
+
+<!-- ═══ BARRA DE MANDO ═══════════════════════════════════════ -->
+<header class="command-bar">
+  <div class="brand">
+    <!-- Wordmark oficial VÖR (software/dashboard/static/img/logo_vora.png,
+         790x300, PNG con fondo transparente, colores reales del
+         asset -- texto marino oscuro + carita robot verde formando
+         la Ö). Corrección deliberada: una versión anterior sustituyó
+         esto por solo la carita recoloreada a blanco; esta es de
+         nuevo la marca completa, sin recolorear ni redibujar nada.
+         onerror mantiene el marcador SVG como respaldo si el archivo
+         llegara a faltar -- el header nunca se rompe por un 404. -->
+    <img class="brand-logo" src="img/logo_vora.png" alt="VÖR"
+         onerror="this.hidden=true; document.querySelector('.brand-mark').hidden=false;">
+    <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" hidden>
+      <circle cx="12" cy="12" r="3" fill="currentColor"/>
+      <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1" opacity=".5"/>
+      <circle cx="12" cy="12" r="11" fill="none" stroke="currentColor" stroke-width="1" opacity=".2"/>
+    </svg>
+    <!-- El wordmark ya dice "VÖR" -- repetir "VORA" al lado sería
+         redundante. Se deja solo "OS" como subtítulo discreto, no
+         "VORA OS" completo. -->
+    <span class="brand-name-suffix">OS</span>
+  </div>
+
+  <div class="command-meta">
+    <div class="meta-item">
+      <span class="label">Estado</span>
+      <span class="data" id="mission-status">—</span>
+    </div>
+    <div class="meta-item">
+      <span class="label">Tiempo</span>
+      <span class="data" id="mission-uptime">—</span>
+    </div>
+  </div>
+
+  <!-- Limitaciones de uso -- visible de forma permanente en la barra
+       de mando (no solo en el splash, que solo se ve una vez por
+       sesión), per audit-2026-09-28.md §6/§3D. El resumen corto
+       siempre está en pantalla sin interacción; el botón abre el
+       texto completo. Antes de `.link-state` (que se empuja a la
+       derecha con margin-left:auto) para no competir por ese espacio. -->
+  <button type="button" id="usage-disclaimer" class="usage-disclaimer"
+          aria-haspopup="dialog" aria-controls="usage-panel">
+    <span aria-hidden="true">⚠</span>
+    No es diagnóstico médico · Requiere verificación humana
+  </button>
+
+  <div class="link-state" id="link-state" data-state="booting">
+    <span class="link-dot" aria-hidden="true"></span>
+    <span class="data" id="link-text">Conectando</span>
+  </div>
+</header>
+
+<!-- Panel de limitaciones de uso completo (audit-2026-09-28.md §6),
+     oculto por defecto, abierto por el botón de arriba. -->
+<div id="usage-panel" class="usage-panel" role="dialog" aria-modal="true"
+     aria-label="Limitaciones de uso de VORA OS" hidden>
+  <div class="usage-panel-content">
+    <button type="button" id="usage-panel-close" class="usage-panel-close"
+            aria-label="Cerrar">×</button>
+    <h2 class="usage-panel-title">Limitaciones de uso de VORA OS</h2>
+    <p>
+      VORA OS es una herramienta de apoyo a la decisión, no un instrumento de
+      diagnóstico ni un sistema de confirmación de personas. Ningún indicador
+      de esta pantalla debe interpretarse como "persona confirmada" ni como
+      una medición clínica.
+    </p>
+    <ul>
+      <li>
+        El <strong>índice de vida</strong> es un índice heurístico de fuerza
+        de evidencia (0–100), <strong>no una probabilidad calibrada</strong>.
+        Un valor alto no es una garantía; un valor bajo no descarta a un
+        sobreviviente.
+      </li>
+      <li>
+        La <strong>respiración</strong> se detecta por amplitud de un solo
+        barrido, sin filtro de periodicidad. La validación con datos reales
+        (un radar, un edificio) se hizo con ese filtro activo: 16 de 18
+        ventanas con persona, con un umbral elegido sobre esas mismas
+        ventanas. Esta configuración no lo usa y su tasa de falsos positivos
+        no está medida. Verifica siempre con una persona.
+      </li>
+      <li>
+        Todo el sistema, salvo donde se indique explícitamente lo contrario,
+        <strong>ha sido validado en simulación y contra un número reducido de
+        sesiones de datos reales</strong>, no en condiciones de campo ni con
+        el hardware final del vehículo.
+      </li>
+      <li>
+        VORA OS <strong>no sustituye la inspección humana directa</strong> de
+        una zona. Toda evidencia reportada requiere verificación por personal
+        de rescate antes de cualquier decisión operativa.
+      </li>
+      <li>
+        Este sistema <strong>no es un dispositivo médico</strong> y no debe
+        usarse como base única para decisiones de triage o priorización
+        médica.
+      </li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══ SITUACIÓN ════════════════════════════════════════════ -->
+<main class="situation">
+
+  <!-- Canvas de situación -->
+  <section class="canvas-stage" aria-label="Canvas de situación">
+    <canvas id="situation-canvas"></canvas>
+
+    <!-- Estado degradado: rotula la pantalla entera sin borrar nada -->
+    <div class="link-banner" id="link-banner" role="status" hidden>
+      <span class="link-banner-label" id="link-banner-label">SIN ENLACE</span>
+      <span class="link-banner-age data" id="link-banner-age"></span>
+    </div>
+
+    <!-- Etiquetas en HTML, no dibujadas: seleccionables y accesibles -->
+    <div class="canvas-overlay" id="canvas-overlay" aria-hidden="true"></div>
+
+    <div class="canvas-empty" id="canvas-empty" hidden>
+      <span class="label">Esperando barrido</span>
+      <span class="canvas-empty-note">Ninguna zona ha sido cubierta todavía</span>
+    </div>
+
+    <!-- Dos niveles: la clave de color es una cosa y la advertencia
+         sobre lo que la disposición sí y no afirma es otra. -->
+    <div class="canvas-legend">
+      <div class="legend-keys">
+        <span class="legend-item"><i class="swatch swatch-lidar"></i>LiDAR</span>
+        <span class="legend-item"><i class="swatch swatch-thermal"></i>Térmica</span>
+        <span class="legend-item"><i class="swatch swatch-radar"></i>Radar</span>
+        <span class="legend-sep"></span>
+        <span class="legend-item"><i class="swatch swatch-corr"></i>Corroborado</span>
+      </div>
+      <p class="legend-scale" id="legend-scale"></p>
+    </div>
+
+    <nav class="zone-rail" id="zone-rail" role="tablist" aria-label="Zonas"></nav>
+  </section>
+
+  <!-- Dossier de zona -->
+  <aside class="dossier" id="dossier" aria-live="polite" aria-label="Dossier de zona">
+    <div class="dossier-placeholder">
+      <span class="label">Sin zona seleccionada</span>
+    </div>
+  </aside>
+
+</main>
+
+<!-- ═══ RIEL DE TELEMETRÍA ═══════════════════════════════════ -->
+<footer class="telemetry-rail" aria-label="Telemetría">
+  <section class="rail-block" aria-label="Recursos">
+    <h2 class="label">Recursos</h2>
+    <div class="rail-body rail-res" id="rail-resources"></div>
+  </section>
+  <section class="rail-block rail-feed" aria-label="Evidencia en vivo">
+    <h2 class="label">Evidencia en vivo</h2>
+    <div class="rail-body rail-feed-list" id="rail-feed"></div>
+  </section>
+  <!-- El bridge guarda el último barrido por zona, no un historial:
+       el rótulo dice cobertura, no número de barridos. -->
+  <section class="rail-block rail-counts" aria-label="Cobertura">
+    <h2 class="label">Cobertura</h2>
+    <div class="rail-body rail-cov" id="rail-scans"></div>
+  </section>
+</footer>
+
+<script src="replay.js"></script>
+<script src="mission.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

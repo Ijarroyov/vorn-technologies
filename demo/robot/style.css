@@ -1,0 +1,987 @@
+/* ==============================================================
+   VORA OS - Situacion de mision
+   Paso 1: tokens + layout de 3 regiones.
+
+   Dos ejes cromaticos que nunca se cruzan:
+     --life-*  evidencia de vida
+     --risk-*  riesgo estructural
+   El verde es senal, no marca. La UI se construye con neutros.
+   ============================================================== */
+
+:root {
+  /* -- Superficie: 3 planos, no 5. Separacion legible ---------- */
+  --s-void:        #070B0F;   /* fondo del canvas */
+  --s-base:        #0E151B;   /* chasis */
+  --s-raised:      #18222B;   /* dossier, riel */
+  --line:          rgba(244, 241, 234, 0.07);
+  --line-strong:   rgba(244, 241, 234, 0.14);
+
+  /* -- Eje VIDA. Jamas usado para UI --------------------------- */
+  --life-0:        #1F3D33;   /* observada, sin evidencia */
+  --life-1:        #12A96E;   /* evidencia presente */
+  --life-2:        #2BE08F;   /* evidencia corroborada */
+  --life-glow:     rgba(43, 224, 143, 0.22);
+
+  /* -- Eje RIESGO ESTRUCTURAL. Independiente ------------------- */
+  --risk-unknown:  rgba(244, 241, 234, 0.22);   /* el estado honesto */
+  --risk-stable:   #1F3D33;
+  --risk-mod:      #E8B54A;
+  --risk-high:     #E0574F;
+
+  /* -- Modalidad: frios, no compiten con el eje de vida -------- */
+  --mod-lidar:     #6FA8C7;
+  --mod-thermal:   #D98A5A;
+  --mod-radar:     #9B8AD9;
+
+  /* -- Texto --------------------------------------------------- */
+  --t-primary:     #F4F1EA;
+  --t-secondary:   rgba(244, 241, 234, 0.62);
+  --t-tertiary:    rgba(244, 241, 234, 0.38);
+
+  /* -- Tipografia ---------------------------------------------- */
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+
+  /* -- Forma: 2 radios, no 3. Sin sombras ---------------------- */
+  --r-panel: 14px;
+  --r-chip:  6px;
+
+  /* -- Ritmo --------------------------------------------------- */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;
+  --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+
+  /* -- Regiones ------------------------------------------------ */
+  --h-command: 56px;
+  --h-rail:    96px;
+  --w-dossier: 400px;
+
+  /* -- Motion -------------------------------------------------- */
+  --ease-out:    cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --d-press: 120ms; --d-hover: 160ms; --d-select: 220ms;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { height: 100%; }
+
+body {
+  /* Altura del viewport directa. La cadena html 100% -> body 100%
+     resolvia a 0 en el contenedor embebido, y con ella la fila 1fr
+     del grid: el canvas nacia con altura cero. */
+  height: 100vh;
+  height: 100dvh;
+  background: var(--s-base);
+  color: var(--t-primary);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+
+  display: grid;
+  grid-template-rows: var(--h-command) 1fr var(--h-rail);
+  grid-template-areas: "command" "situation" "rail";
+}
+
+/* Roles tipograficos ------------------------------------------- */
+.label {
+  font: 600 11px/1.3 var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t-tertiary);
+}
+.data {
+  font: 500 13px/1.3 var(--mono);
+  font-variant-numeric: tabular-nums;   /* obligatorio: refresco 500ms */
+  color: var(--t-primary);
+}
+.display {
+  font: 500 32px/1.1 var(--sans);
+  letter-spacing: -0.02em;
+}
+
+/* === BARRA DE MANDO =========================================== */
+.command-bar {
+  grid-area: command;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  padding: 0 var(--sp-5);
+  background: var(--s-base);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: center; gap: var(--sp-2); }
+.brand-mark { width: 22px; height: 22px; color: var(--life-1); }
+
+/* Wordmark oficial VÖR: la marca completa -- texto "VÖR" + la carita
+   robot verde formando la Ö -- en sus colores reales (marino oscuro +
+   verde), no recoloreada. Fuente en
+   software/dashboard/static/img/logo_vora.png, 790x300, recortada a
+   su propio bounding box real (mismo método de las otras variantes
+   de esta marca en este archivo: filtrar por saturación, no solo por
+   transparencia, para no arrastrar ruido casi-blanco invisible).
+
+   **Decisión deliberada**: se usa el asset real, sin recolorear. Una
+   variante anterior usaba solo la carita recoloreada a blanco, con el
+   argumento de que el texto oscuro no contrastaba bien contra este
+   header oscuro; se descartó: el asset real se usa tal cual, con su
+   contraste real, no uno inventado.
+
+   Alto fijo (34px, dentro del rango pedido), ancho automático
+   respetando el aspecto real del wordmark (~2.63:1, horizontal) --
+   a diferencia del ícono aislado (vertical, se dimensionaba por
+   alto), este vuelve a dimensionarse por ancho.
+
+   Entrada: fade-in + scale una sola vez al cargar. Reposo: un pulso de
+   escala muy leve -- lee como "con vida", no como una animación que
+   pida atención. Mismo espíritu que el resto de este dashboard: los
+   pulsos de estado (p.ej. `.link-dot`) sí necesitan llamar la
+   atención; este, deliberadamente, no. */
+.brand-logo {
+  height: 34px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+  transform-origin: center;
+  animation:
+    brand-logo-in 500ms var(--ease-out) both,
+    brand-logo-breathe 3.2s ease-in-out 500ms infinite;
+}
+@keyframes brand-logo-in {
+  from { opacity: 0; transform: scale(.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes brand-logo-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.03); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-logo { animation: none; opacity: 1; transform: none; }
+}
+/* El wordmark ya dice "VÖR" -- "VORA OS" completo al lado sería
+   redundante. Solo un sufijo discreto de producto. */
+.brand-name-suffix {
+  font: 500 12px/1 var(--sans);
+  letter-spacing: 0.08em;
+  color: var(--t-tertiary);
+}
+
+.command-meta {
+  display: flex; gap: var(--sp-6);
+  padding-left: var(--sp-6);
+  border-left: 1px solid var(--line);
+}
+.meta-item { display: flex; flex-direction: column; gap: 2px; }
+/* Con el enlace degradado la barra deja de afirmar el estado de la mision:
+   ESTADO nombra el problema y TIEMPO se atenua en su ultimo valor. */
+#mission-status[data-stale="true"] { color: var(--risk-high); }
+#mission-status[data-stale="warn"] { color: var(--risk-mod); }
+#mission-uptime[data-stale="true"] { color: var(--t-tertiary); }
+
+/* Limitaciones de uso -- siempre visible en la barra de mando, no
+   detrás de un menú. audit-2026-09-28.md §6/§3D: el sistema no debe
+   representar certeza indebida, y ese texto tiene que estar donde el
+   rescatista ya está mirando, no solo en el splash de una vez. */
+.usage-disclaimer {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-left: var(--sp-4);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--r-chip);
+  border: 1px solid var(--risk-mod);
+  background: transparent;
+  color: var(--risk-mod);
+  font: 600 11px/1.3 var(--sans);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--d-hover) var(--ease-out);
+}
+.usage-disclaimer:hover { background: rgba(232, 181, 74, 0.12); }
+
+.usage-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 11, 15, 0.72);
+  padding: var(--sp-5);
+}
+.usage-panel[hidden] { display: none; }
+.usage-panel-content {
+  position: relative;
+  max-width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--s-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-panel);
+  padding: var(--sp-6);
+}
+.usage-panel-title {
+  font: 600 20px/1.2 var(--sans);
+  margin-bottom: var(--sp-4);
+  padding-right: var(--sp-5);
+}
+.usage-panel-content p {
+  color: var(--t-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+  margin-bottom: var(--sp-4);
+}
+.usage-panel-content ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.usage-panel-content li {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--t-secondary);
+  padding-left: var(--sp-4);
+  border-left: 2px solid var(--risk-mod);
+}
+.usage-panel-content li strong { color: var(--t-primary); }
+.usage-panel-close {
+  appearance: none;
+  position: absolute;
+  top: var(--sp-4);
+  right: var(--sp-4);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--t-secondary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.usage-panel-close:hover { background: var(--line); color: var(--t-primary); }
+
+.link-state { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.link-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--t-tertiary);
+}
+.link-state[data-severity="ok"]   .link-dot { background: var(--life-1); }
+.link-state[data-severity="warn"] .link-dot { background: var(--risk-mod); }
+.link-state[data-severity="bad"]  .link-dot { background: var(--risk-high); }
+
+/* === SITUACION ================================================ */
+.situation {
+  grid-area: situation;
+  display: grid;
+  grid-template-columns: 1fr var(--w-dossier);
+  min-height: 0;   /* deja que el canvas se encoja dentro del grid */
+}
+
+/* -- Canvas ---------------------------------------------------- */
+.canvas-stage {
+  position: relative;
+  background: var(--s-void);
+  overflow: hidden;
+  min-width: 0;
+}
+
+#situation-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+#situation-canvas:active { cursor: grabbing; }
+
+.canvas-overlay {
+  position: absolute; inset: 0;
+  pointer-events: none;   /* las etiquetas no roban el arrastre */
+}
+
+.zone-label {
+  position: absolute;
+  transform: translate(-50%, 0);
+  font: 600 11px/1.3 var(--sans);
+  letter-spacing: 0.06em;
+  color: var(--t-secondary);
+  white-space: nowrap;
+  text-shadow: 0 1px 3px var(--s-void);
+}
+.zone-label[data-selected="true"] { color: var(--t-primary); }
+.zone-label-id { display: block; }
+.zone-label-note {
+  display: block;
+  font: 500 10px/1.3 var(--mono);
+  color: var(--t-tertiary);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.canvas-empty {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+}
+/* `display: grid` gana al `[hidden] { display: none }` del navegador:
+   sin esta regla el cartel "esperando barrido" se quedaba encima de
+   cuatro zonas ya dibujadas. */
+.canvas-empty[hidden] { display: none; }
+
+.canvas-legend {
+  position: absolute;
+  left: var(--sp-4); bottom: var(--sp-4);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  padding: var(--sp-2) var(--sp-3);
+  background: rgba(7, 11, 15, 0.72);
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+}
+.legend-item {
+  display: flex; align-items: center; gap: 6px;
+  font: 600 10px/1 var(--sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t-tertiary);
+}
+.swatch { width: 8px; height: 2px; border-radius: 1px; }
+.swatch-lidar   { background: var(--mod-lidar); }
+.swatch-thermal { background: var(--mod-thermal); }
+.swatch-radar   { background: var(--mod-radar); }
+.swatch-corr    { background: var(--life-2); height: 1px; width: 12px; }
+.legend-keys { display: flex; align-items: center; gap: var(--sp-3); }
+.legend-sep { width: 1px; height: 12px; background: var(--line-strong); }
+.legend-scale {
+  font: 500 10px/1.3 var(--mono);
+  color: var(--t-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- Riel de zonas --------------------------------------------- */
+.zone-rail {
+  position: absolute;
+  left: var(--sp-4); top: var(--sp-4);
+  display: flex; flex-direction: column; gap: var(--sp-1);
+}
+
+.zone-pill {
+  display: flex; align-items: center; gap: var(--sp-2);
+  min-height: 32px;
+  padding: 0 var(--sp-3) 0 var(--sp-2);
+  background: rgba(24, 34, 43, 0.82);
+  border: 1px solid var(--line);
+  border-left: 2px solid transparent;
+  border-radius: var(--r-chip);
+  color: var(--t-secondary);
+  font: 500 12px/1 var(--mono);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.zone-pill:hover { border-color: var(--line-strong); color: var(--t-primary); }
+.zone-pill[aria-selected="true"] {
+  border-left-color: var(--life-1);
+  background: var(--s-raised);
+  color: var(--t-primary);
+}
+.zone-pill:focus-visible {
+  outline: 2px solid var(--life-1);
+  outline-offset: 2px;
+}
+
+/* Firma de evidencia: un punto por modalidad presente */
+.pill-mods { display: flex; gap: 3px; }
+.pill-mod {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--line-strong);
+}
+.pill-mod[data-on="true"][data-mod="lidar"]   { background: var(--mod-lidar); }
+.pill-mod[data-on="true"][data-mod="thermal"] { background: var(--mod-thermal); }
+.pill-mod[data-on="true"][data-mod="radar"]   { background: var(--mod-radar); }
+
+/* Riesgo estructural: visible siempre, incluso UNKNOWN */
+.pill-risk {
+  width: 3px; height: 14px; border-radius: 2px;
+  background: var(--risk-unknown);
+  margin-left: auto;
+}
+.pill-risk[data-risk="STABLE"]    { background: var(--risk-stable); }
+.pill-risk[data-risk="MODERATE"]  { background: var(--risk-mod); }
+.pill-risk[data-risk="HIGH_RISK"] { background: var(--risk-high); }
+
+/* -- Dossier --------------------------------------------------- */
+.dossier {
+  background: var(--s-raised);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+  min-width: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.dossier-placeholder {
+  height: 100%;
+  display: grid; place-items: center;
+  padding: var(--sp-5);
+  text-align: center;
+}
+
+/* -- Dossier: contenido ---------------------------------------- */
+.dossier-head {
+  position: relative;
+  padding: var(--sp-5) var(--sp-5) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+
+/* Solo existe cuando el dossier es un panel deslizante que tapa el
+   canvas. Un panel que cubre media pantalla sin salida visible es una
+   trampa, aunque Esc funcione. Encima de 1280 px el panel es una
+   region fija del layout y cerrarla no significa nada. */
+.dossier-close { display: none; }
+@media (max-width: 1280px) {
+  .dossier-close {
+    display: grid; place-items: center;
+    position: absolute; top: var(--sp-3); right: var(--sp-3);
+    width: 28px; height: 28px;
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: var(--r-chip);
+    color: var(--t-secondary);
+    font: 400 16px/1 var(--sans);
+    cursor: pointer;
+    transition: border-color var(--d-hover) var(--ease-out),
+                color var(--d-hover) var(--ease-out),
+                transform var(--d-hover) var(--ease-out);
+  }
+  .dossier-close:hover { border-color: var(--line-strong); color: var(--t-primary); }
+  .dossier-close:active { transform: scale(0.94); transition-duration: var(--d-press); }
+  .dossier-close:focus-visible { outline: 2px solid var(--life-1); outline-offset: 2px; }
+}
+.dossier-head .display { margin: var(--sp-2) 0 var(--sp-3); }
+.dossier-summary {
+  font: 400 13px/1.55 var(--sans);
+  color: var(--t-secondary);
+  text-wrap: pretty;
+}
+.dossier-note {
+  font: 400 11px/1.5 var(--sans);
+  color: var(--t-tertiary);
+  margin-top: var(--sp-2);
+  text-wrap: pretty;
+}
+/* La nota de Fase 3 sobre RESPIRATION no es una aclaracion mas: es la
+   diferencia entre "detectado" y "detectado por un algoritmo que fallo
+   contra datos reales hasta que se recalibro". Mismo color que
+   --risk-mod (ya usado para riesgo estructural moderado), reutilizado
+   deliberadamente en vez de introducir un tono nuevo. */
+.dossier-note-warn {
+  color: var(--risk-mod);
+  border-left: 2px solid var(--risk-mod);
+  padding-left: var(--sp-2);
+}
+
+.dossier-group {
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--line);
+}
+.dossier-group > .label { display: block; margin-bottom: var(--sp-2); }
+
+/* Filas clave/valor. El estado vive en data-state, no en una clase
+   por color: "observada y vacia" y "no observada" son estados del
+   dominio, no variantes visuales. */
+.kv { display: flex; flex-direction: column; }
+.kv-row {
+  display: flex; align-items: baseline; gap: var(--sp-3);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+.kv-row:last-child { border-bottom: 0; }
+.kv-k {
+  flex: 1; min-width: 0;
+  font: 400 12px/1.4 var(--sans);
+  color: var(--t-tertiary);
+}
+.kv-v {
+  display: flex; align-items: center; gap: 6px;
+  font: 500 12px/1.4 var(--sans);
+  color: var(--t-secondary);
+  text-align: right;
+}
+.kv-v.data { font-family: var(--mono); color: var(--t-primary); }
+
+.kv-row[data-state="present"] .kv-v { color: var(--t-primary); }
+.kv-row[data-state="unobserved"] .kv-v { color: var(--t-tertiary); font-style: italic; }
+
+/* El color de modalidad solo aparece cuando esa modalidad aporto
+   algo: un punto coloreado en una fila vacia seria senal falsa. */
+.kv-row[data-state="present"][data-mod="lidar"]   .kv-v { color: var(--mod-lidar); }
+.kv-row[data-state="present"][data-mod="thermal"] .kv-v { color: var(--mod-thermal); }
+.kv-row[data-state="present"][data-mod="radar"]   .kv-v { color: var(--mod-radar); }
+
+/* Retornos de radar: una fila por candidato localizado. Lleva su
+   propio formato y no una fila clave/valor porque cada retorno tiene
+   tres datos -- amplitud, extensión angular y posición -- y ninguno
+   es subordinado de los otros. */
+.radar-list { display: flex; flex-direction: column; }
+.radar-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: var(--sp-3);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+.radar-row:last-child { border-bottom: 0; }
+.radar-k {
+  font: 400 12px/1.4 var(--sans);
+  color: var(--t-tertiary);
+}
+.radar-amp {
+  font-size: 12px;
+  color: var(--mod-radar);
+}
+.radar-meta {
+  grid-column: 1 / -1;
+  margin-top: 3px;
+  font: 500 10px/1.4 var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--t-tertiary);
+}
+/* Un retorno sin posición no puede dibujarse: el dossier es el único
+   sitio donde consta que existe. */
+.radar-row[data-located="false"] .radar-meta {
+  color: var(--t-secondary);
+  font-style: italic;
+}
+
+.risk-dot {
+  width: 8px; height: 8px; border-radius: 2px;
+  background: var(--risk-unknown);
+}
+.risk-dot[data-risk="STABLE"]    { background: var(--risk-stable); }
+.risk-dot[data-risk="MODERATE"]  { background: var(--risk-mod); }
+.risk-dot[data-risk="HIGH_RISK"] { background: var(--risk-high); }
+
+/* Trazabilidad: rejilla monoespaciada, la evidencia real que
+   sostiene el veredicto de arriba. */
+.trace { display: flex; flex-direction: column; }
+.trace-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  grid-template-areas: "type conf time" "src src src";
+  gap: 2px var(--sp-2);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.trace-row:last-child { border-bottom: 0; }
+.trace-type {
+  grid-area: type;
+  font: 600 10px/1.3 var(--sans);
+  letter-spacing: 0.06em;
+  color: var(--t-secondary);
+}
+.trace-row[data-type="RESPIRATION"]     .trace-type { color: var(--mod-radar); }
+.trace-row[data-type="THERMAL_ANOMALY"] .trace-type { color: var(--mod-thermal); }
+.trace-row[data-type="CAVITY"]          .trace-type { color: var(--mod-lidar); }
+.trace-conf { grid-area: conf; font-size: 11px; color: var(--t-primary); }
+.trace-time { grid-area: time; font-size: 11px; color: var(--t-tertiary); }
+.trace-src {
+  grid-area: src;
+  font: 400 10px/1.3 var(--mono);
+  color: var(--t-tertiary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* === RIEL DE TELEMETRIA ======================================= */
+.telemetry-rail {
+  grid-area: rail;
+  display: grid;
+  grid-template-columns: 1fr 1.6fr 0.8fr;
+  gap: 1px;
+  background: var(--line);
+  border-top: 1px solid var(--line);
+}
+.rail-block {
+  background: var(--s-base);
+  padding: var(--sp-2) var(--sp-4);
+  display: flex; flex-direction: column; gap: var(--sp-1);
+  min-width: 0; overflow: hidden;
+}
+.rail-body { flex: 1; min-height: 0; overflow: hidden; }
+
+/* -- Riel: recursos -------------------------------------------
+   Dos columnas de dos filas dentro de los 96 px. Barra de 2 px,
+   no de 8: el riel informa, no mide. */
+.rail-res {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: var(--sp-1) var(--sp-5);
+}
+.res-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  column-gap: var(--sp-2);
+}
+.res-name {
+  display: flex; align-items: baseline; gap: var(--sp-1);
+  min-width: 0;
+  font: 600 10px/1.4 var(--sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t-tertiary);
+}
+.res-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Nunca se recorta: es lo que dice que el dato no viene de un sensor. */
+.res-sim { flex: none; color: var(--risk-mod); }
+.res-sim:empty { display: none; }
+.res-val {
+  font: 500 11px/1.4 var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--t-secondary);
+  white-space: nowrap;
+}
+.res-extra {
+  font: 500 11px/1.4 var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--t-tertiary);
+  white-space: nowrap;
+}
+.res-track {
+  grid-column: 1 / -1;
+  height: 2px;
+  margin-top: 2px;
+  background: var(--line-strong);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.res-fill { display: block; height: 100%; background: var(--t-tertiary); }
+
+/* El unico color del riel procede de `state`, que lo declara el
+   sistema. No hay umbral de "bateria baja" porque no hay dato con
+   el que calibrarlo. */
+.res-row[data-state="ERROR"] .res-val,
+.res-row[data-state="ERROR"] .res-extra,
+.res-row[data-state="ERROR"] .res-name { color: var(--risk-high); }
+.res-row[data-state="ERROR"] .res-fill { background: var(--risk-high); }
+
+/* -- Riel: evidencia en vivo ----------------------------------
+   Tres filas fijas. Nunca empuja el layout porque el riel recorta
+   por overflow y las filas tienen altura constante. */
+.rail-feed-list { display: flex; flex-direction: column; }
+.feed-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 132px) auto 1fr;
+  gap: var(--sp-2);
+  align-items: baseline;
+  font: 500 11px/1.5 var(--mono);
+  white-space: nowrap;
+}
+.feed-time { color: var(--t-tertiary); font-variant-numeric: tabular-nums; }
+.feed-zone { color: var(--t-secondary); }
+.feed-type {
+  color: var(--t-tertiary);
+  letter-spacing: 0.04em;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.feed-conf { color: var(--t-primary); font-variant-numeric: tabular-nums; }
+.feed-row[data-type="CAVITY"]          .feed-type { color: var(--mod-lidar); }
+.feed-row[data-type="THERMAL_ANOMALY"] .feed-type { color: var(--mod-thermal); }
+.feed-row[data-type="RESPIRATION"]     .feed-type { color: var(--mod-radar); }
+
+/* -- Riel: cobertura ------------------------------------------ */
+.rail-cov { display: flex; flex-direction: column; }
+.cov-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--sp-2);
+  align-items: baseline;
+}
+.cov-k {
+  font: 600 10px/1.35 var(--sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t-tertiary);
+}
+.cov-v {
+  font: 500 11px/1.35 var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--t-secondary);
+  white-space: nowrap;
+}
+
+/* === MOVIMIENTO (paso 6) =======================================
+   Se anima al operador, no al sensor. Se anima lo que causa una
+   persona y lo que ocurre una sola vez. Nada de lo que llega cada
+   500 ms se anima -- ni un valor, ni una barra, ni una fila del
+   feed: a esa frecuencia una transicion deja de ser respuesta.
+   Solo `transition`, salvo el arranque. */
+
+/* 1. Arranque. La unica animacion por keyframes del archivo: ocurre
+      una vez, no se interrumpe, y no representa ningun dato. */
+@keyframes region-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes stage-in  { from { opacity: 0; } }
+
+.command-bar, .dossier, .telemetry-rail {
+  animation: region-in 320ms var(--ease-out) both;
+}
+/* El canvas entra solo con opacidad: una transformada sobre su
+   contenedor lo rasteriza borroso mientras dura. */
+.canvas-stage { animation: stage-in 420ms var(--ease-out) both; }
+
+.command-bar    { animation-delay:   0ms; }
+.canvas-stage   { animation-delay:  60ms; }
+.dossier        { animation-delay: 120ms; }
+.telemetry-rail { animation-delay: 180ms; }
+
+/* 2. Cambio de zona. El contenido nuevo se revela; no hay fase de
+      salida, porque retrasar el veredicto para encadenar un
+      crossfade seria decorar a costa de la lectura. */
+.dossier {
+  transition:
+    opacity var(--d-select) var(--ease-out),
+    filter  var(--d-select) var(--ease-out);
+}
+.dossier[data-entering="true"] {
+  opacity: 0.001;
+  filter: blur(6px);
+  transition: none;
+}
+
+/* 4. Hover y press. Solo transform y color; nunca dimensiones. */
+.zone-pill {
+  transform-origin: left center;
+  transition:
+    transform        var(--d-hover) var(--ease-out),
+    border-color     var(--d-hover) var(--ease-out),
+    background-color var(--d-hover) var(--ease-out),
+    color            var(--d-hover) var(--ease-out);
+}
+.zone-pill:hover  { transform: scale(1.02); }
+.zone-pill:active {
+  transform: scale(0.985);
+  transition-duration: var(--d-press);
+}
+
+.link-dot { transition: background-color var(--d-select) var(--ease-out); }
+
+/* === ESTADOS DEGRADADOS (paso 7) ==============================
+   Perder el enlace no vacia la pantalla. Los datos se quedan,
+   congelados y rotulados con su edad: son el ultimo estado conocido
+   y siguen sirviendo para decidir. */
+
+.link-banner {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  display: flex; align-items: baseline; gap: var(--sp-3);
+  padding: 6px var(--sp-4);
+  background: rgba(224, 87, 79, 0.14);
+  border-bottom: 1px solid var(--risk-high);
+}
+/* Sin esto el `display: flex` gana al `[hidden]` del navegador --
+   el mismo conflicto que escondia mal el cartel de espera. */
+.link-banner[hidden] { display: none; }
+
+.link-banner-label {
+  flex: none; white-space: nowrap;
+  font: 700 11px/1.4 var(--sans);
+  letter-spacing: 0.1em;
+  color: var(--risk-high);
+}
+.link-banner-age {
+  font-size: 11px;
+  color: var(--t-secondary);
+}
+body[data-severity="warn"] .link-banner {
+  background: rgba(232, 181, 74, 0.12);
+  border-bottom-color: var(--risk-mod);
+}
+body[data-severity="warn"] .link-banner-label { color: var(--risk-mod); }
+
+/* La banda desplaza el riel de zonas en vez de taparlo. */
+body[data-severity="warn"] .zone-rail,
+body[data-severity="bad"] .zone-rail { top: calc(var(--sp-4) + 30px); }
+
+/* El canvas se desatura: los datos siguen ahi, pero dejan de
+   presentarse como lectura viva. El filtro va sobre el lienzo y sus
+   etiquetas, no sobre el escenario, para que la banda y la leyenda
+   conserven su color de alarma.
+   Lleva transicion porque perder el enlace ocurre una vez, no cada
+   500 ms: es un cambio de estado, no un dato que llega. */
+#situation-canvas, .canvas-overlay {
+  transition: filter 320ms var(--ease-out);
+}
+body[data-severity="bad"] #situation-canvas,
+body[data-severity="bad"] .canvas-overlay { filter: saturate(0.6); }
+
+/* Dos lineas apiladas y centradas como bloque: con `place-items`
+   solo, las filas automaticas se estiran y el texto acaba repartido
+   a un cuarto y a tres cuartos de la altura. */
+.canvas-empty {
+  align-content: center; justify-items: center;
+  gap: var(--sp-2); text-align: center;
+}
+.canvas-empty-note {
+  font: 400 12px/1.4 var(--sans);
+  color: var(--t-tertiary);
+}
+
+/* Numero de la pastilla: hace descubrible el atajo 1-9 sin anadir
+   una leyenda de teclado que nadie lee. */
+.pill-idx {
+  min-width: 8px;
+  font: 500 10px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--t-tertiary);
+}
+.zone-pill[aria-selected="true"] .pill-idx { color: var(--life-1); }
+
+/* === SPLASH =====================================================
+   Pantalla previa a la misión. `position: fixed` -- fuera del grid
+   de `body` (ver el comentario junto a ese `display: grid`), así que
+   cubrir/descubrir esto nunca desplaza `.command-bar`/`.situation`/
+   `.telemetry-rail`. El ícono es el PNG oficial de la marca
+   (software/dashboard/static/img/vora_mark.png), sin redibujar --
+   solo animado con CSS. */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 38%, var(--s-raised) 0%, var(--s-void) 72%);
+  opacity: 1;
+  transition: opacity 400ms var(--ease-out);
+}
+/* Clase de salida, no `hidden` directo: `hidden` se aplica con un
+   setTimeout desde mission.js una vez que la transición de opacidad
+   termina -- desaparecer de golpe se leería como un parpadeo. */
+.splash.splash-leaving { opacity: 0; pointer-events: none; }
+.splash[hidden] { display: none; }
+
+.splash-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  text-align: center;
+  padding: var(--sp-6);
+  max-width: 420px;
+}
+
+/* Entrada: fade-in + scale, una sola vez. Reposo: "respiración" de
+   escala + una flotación vertical muy leve + brillo verde que
+   respira con ella -- mucho más presente que el pulso casi
+   imperceptible del ícono del header (mismo espíritu, otra escala:
+   esto es la pantalla de bienvenida, no una lectura de datos en
+   curso que no debe distraerse). */
+.splash-logo {
+  width: 120px;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 22px var(--life-glow));
+  animation:
+    splash-logo-in 650ms var(--ease-out) both,
+    splash-logo-idle 2.3s ease-in-out 650ms infinite;
+}
+@keyframes splash-logo-in {
+  from { opacity: 0; transform: scale(.85); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes splash-logo-idle {
+  0%, 100% { transform: scale(1)     translateY(0);   filter: drop-shadow(0 0 18px var(--life-glow)); }
+  50%      { transform: scale(1.06) translateY(-5px); filter: drop-shadow(0 0 36px var(--life-glow)); }
+}
+
+.splash-title {
+  font: 600 32px/1.1 var(--sans);
+  letter-spacing: -0.01em;
+  margin-top: var(--sp-3);
+}
+.splash-title-os { color: var(--t-tertiary); font-weight: 400; }
+
+.splash-tagline {
+  color: var(--t-secondary);
+  font-size: 13px;
+  max-width: 320px;
+}
+
+.splash-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  width: 100%;
+  margin-top: var(--sp-5);
+}
+.splash-btn {
+  appearance: none;
+  font: 600 13px/1 var(--sans);
+  letter-spacing: 0.02em;
+  padding: var(--sp-3) var(--sp-5);
+  border-radius: var(--r-chip);
+  cursor: pointer;
+  transition:
+    transform var(--d-hover) var(--ease-out),
+    border-color var(--d-hover) var(--ease-out),
+    background var(--d-hover) var(--ease-out);
+}
+.splash-btn:active { transform: scale(.98); }
+.splash-btn-primary {
+  background: var(--life-1);
+  color: var(--s-void);
+  border: 1px solid var(--life-1);
+}
+.splash-btn-primary:hover { background: var(--life-2); border-color: var(--life-2); }
+.splash-btn-secondary {
+  background: transparent;
+  color: var(--t-primary);
+  border: 1px solid var(--line-strong);
+}
+.splash-btn-secondary:hover:not(:disabled) { border-color: var(--t-secondary); }
+.splash-btn-secondary:disabled {
+  color: var(--t-tertiary);
+  border-color: var(--line);
+  cursor: not-allowed;
+  opacity: .7;
+}
+
+.splash-continue-note {
+  color: var(--t-tertiary);
+  font-size: 11px;
+  min-height: 14px;
+}
+
+/* === RESPONSIVE =============================================== */
+@media (max-width: 1280px) {
+  .situation { grid-template-columns: 1fr; }
+  .dossier { animation-name: stage-in; }
+  /* Con el riel estrechado, la lectura secundaria cede el sitio antes
+     que el nombre del recurso: "BA..." no informa de nada. */
+  .res-extra { display: none; }
+  .dossier {
+    position: fixed; right: 0; top: var(--h-command);
+    bottom: var(--h-rail); width: var(--w-dossier);
+    border-left: 1px solid var(--line-strong);
+    transform: translateX(100%);
+  }
+  .dossier[data-open="true"] { transform: translateX(0); }
+}
+@media (max-width: 900px) {
+  .telemetry-rail { grid-template-columns: 1fr 1fr; }
+  .rail-feed { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+  }
+  .zone-pill:hover, .zone-pill:active { transform: none; }
+  .dossier[data-entering="true"] { opacity: 1; filter: none; }
+}
