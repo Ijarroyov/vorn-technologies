@@ -1,0 +1,99 @@
+/* Guía de lectura de la demostración (capa añadida; no modifica style.css). */
+.splash-demo-note {
+  max-width: 34rem;
+  margin: 0.75rem auto 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--t-secondary);
+  text-align: center;
+}
+
+.guide-open {
+  margin-left: var(--sp-3);
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-chip);
+  background: transparent;
+  color: var(--t-primary);
+  font: 600 0.8rem var(--sans);
+  cursor: pointer;
+}
+.guide-open:hover {
+  background: var(--s-raised);
+}
+
+.guide {
+  position: fixed;
+  z-index: 9000;
+  left: var(--sp-4);
+  bottom: 56px; /* encima de la franja de aviso */
+  width: min(26rem, calc(100vw - 2 * var(--sp-4)));
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-panel);
+  background: var(--s-raised);
+  color: var(--t-primary);
+  font-family: var(--sans);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+}
+.guide[hidden] {
+  display: none;
+}
+.guide-step-count {
+  margin: 0 0 var(--sp-2);
+  font: 600 0.72rem var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--t-tertiary);
+}
+.guide-title {
+  margin: 0 0 var(--sp-2);
+  font-size: 1.1rem;
+}
+.guide-text {
+  margin: 0 0 var(--sp-4);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--t-secondary);
+}
+.guide-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.guide-actions button {
+  min-height: 40px;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-chip);
+  background: transparent;
+  color: var(--t-primary);
+  font: 600 0.85rem var(--sans);
+  cursor: pointer;
+}
+.guide-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.guide-actions .guide-primary {
+  border-color: #6fa8c7;
+  background: #6fa8c7;
+  color: #070b0f;
+}
+.guide-actions .guide-close {
+  margin-left: auto;
+  width: 40px;
+  padding: 0;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+.guide-open:focus-visible,
+.guide-actions button:focus-visible {
+  outline: 2px solid #6fa8c7;
+  outline-offset: 2px;
+}
+@media (max-width: 640px) {
+  .guide-open {
+    display: none; /* la barra de mando no tiene sitio; la guía se abre sola */
+  }
+}

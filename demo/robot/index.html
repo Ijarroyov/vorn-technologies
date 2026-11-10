@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VORA OS — Demostración (reproducción de simulación)</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="guide.css">
 </head>
 <body>
 <div role="note" style="position:fixed;z-index:99999;left:0;right:0;bottom:0;padding:.45rem 1rem;background:#0c202e;color:#f4f6f5;font:600 13px/1.35 system-ui,sans-serif;text-align:center;border-top:1px solid #ff6a2b">
@@ -26,6 +27,7 @@
     <img class="splash-logo" src="img/vora_mark.png" alt="VÖR">
     <h1 class="splash-title">VORA<span class="splash-title-os">&nbsp;OS</span></h1>
     <p class="splash-tagline">Percepción y razonamiento para búsqueda y rescate</p>
+    <p class="splash-demo-note">Demostración con una simulación grabada de un edificio colapsado. Pulsa «Nueva misión» y te explicamos qué estás viendo.</p>
     <div class="splash-actions">
       <button type="button" id="splash-new" class="splash-btn splash-btn-primary">Nueva misión</button>
       <button type="button" id="splash-continue" class="splash-btn splash-btn-secondary" disabled>Continuar misión anterior</button>
@@ -75,6 +77,8 @@
        siempre está en pantalla sin interacción; el botón abre el
        texto completo. Antes de `.link-state` (que se empuja a la
        derecha con margin-left:auto) para no competir por ese espacio. -->
+  <button type="button" id="guide-open" class="guide-open">¿Qué estoy viendo?</button>
+
   <button type="button" id="usage-disclaimer" class="usage-disclaimer"
           aria-haspopup="dialog" aria-controls="usage-panel">
     <span aria-hidden="true">⚠</span>
@@ -200,8 +204,20 @@
   </section>
 </footer>
 
+<aside id="guide" class="guide" role="dialog" aria-label="Guía: qué estás viendo" hidden>
+  <p class="guide-step-count" id="guide-count"></p>
+  <h2 class="guide-title" id="guide-title"></h2>
+  <p class="guide-text" id="guide-text"></p>
+  <div class="guide-actions">
+    <button type="button" id="guide-prev">Anterior</button>
+    <button type="button" id="guide-next" class="guide-primary">Siguiente</button>
+    <button type="button" id="guide-close" class="guide-close" aria-label="Cerrar la guía">×</button>
+  </div>
+</aside>
+
 <script src="replay.js"></script>
 <script src="mission.js"></script>
 <script src="app.js"></script>
+<script src="guide.js"></script>
 </body>
 </html>
